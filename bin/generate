@@ -1,0 +1,101 @@
+#!/usr/bin/env node
+'use strict';
+var meow = require('meow');
+var request = require('request');
+var moment = require('moment');
+var ical = require('ical-generator');
+var http = require('http');
+var parseString = require('xml2js').parseString;
+var cli = meow({
+    help: [
+        'Usage',
+        '  populate --school=<school> --start=<date> --months=<count>'
+    ]
+});
+var start = moment(cli.flags.start);
+var monthsLeft = cli.flags.months;
+var requestComplete = function(){
+    monthsLeft--;
+    console.log('request parsed.');
+    if(monthsLeft < 1){
+        console.log('generating file...');
+        var  cal = ical({
+            domain: '127.0.0.1',
+            prodId: {company: 'falkirks.com', product: 'ical-generator'},
+            name: cli.flags.school
+        });
+        for(var eventId in events){
+            if(events.hasOwnProperty(eventId)){
+                var event = cal.createEvent({
+                    start: new Date(events[eventId].date),
+                    end: new Date(events[eventId].end),
+                    timestamp: new Date(),
+                    summary: events[eventId].title,
+                    description: events[eventId].description,
+                    location: events[eventId].location,
+                    allDay: events[eventId].isAllday
+                });
+
+            }
+        }
+        http.createServer(function(req, res) {
+            cal.serve(res);
+        }).listen(3000, '127.0.0.1', function() {
+            console.log('http://127.0.0.1:3000/');
+        });
+    }
+};
+var events = {};
+if(start.isValid()) {
+
+    for(var monthId = 0; monthId < cli.flags.months; monthId++) {
+        console.log("commissioning request with Id " + monthId);
+        console.log(start.format());
+        request({
+                method: 'POST',
+                uri: 'http://go.vsb.bc.ca/schools/' + cli.flags.school + '/_vti_bin/lists.asmx',
+                headers: {
+                    'Content-Type': 'text/xml'
+                },
+                body: "<soapenv:Envelope xmlns:soapenv='http://schemas.xmlsoap.org/soap/envelope/'><soapenv:Body><GetListItems xmlns='http://schemas.microsoft.com/sharepoint/soap/'><listName>SchoolCalendar</listName><query><Query> <Where><DateRangesOverlap><FieldRef Name = 'EventDate' /><FieldRef Name = 'EndDate' /><FieldRef Name = 'RecurrenceID' /><Value Type='DateTime'><Month /></Value></DateRangesOverlap></Where> </Query> </query> <viewFields>  <ViewFields xmlns=\"\" >   <FieldRef Name=\"Title\" />   <FieldRef Name=\"EventDate\" />   <FieldRef Name=\"EndDate\" />   <FieldRef Name=\"fAllDayEvent\" />   <FieldRef Name=\"RecurrenceID\" />   <FieldRef Name=\"fRecurrence\" />   <FieldRef Name=\"RecurrenceData\" />   <FieldRef Name=\"Description\" />  <FieldRef Name=\"Location\" />  <FieldRef Name=\"Category\" /> </ViewFields> </viewFields><rowLimit>100</rowLimit><queryOptions><QueryOptions><CalendarDate>" + start.format() + "</CalendarDate><ExpandRecurrence>TRUE</ExpandRecurrence><RecurrencePatternXMLVersion>v3</RecurrencePatternXMLVersion></QueryOptions></queryOptions></GetListItems></soapenv:Body></soapenv:Envelope>"
+            },
+            function (error, response, body) {
+                if (error) {
+                    return console.error('failed:', error);
+                }
+                parseString(body, function (err, result) {
+                    var results = result['soap:Envelope']['soap:Body'][0]['GetListItemsResponse'][0]['GetListItemsResult'][0]['listitems'][0]['rs:data'][0]['z:row'];
+                    if(results != null) {
+                        for (var i = 0; i < results.length; i++) {
+                            var event = results[i]['$'];
+                            events[event['ows_UniqueId']] = {
+                                'school': cli.flags.school,
+                                'title': event['ows_Title'],
+                                'date': event['ows_EventDate'],
+                                'end': event['ows_EndDate'],
+                                'isAllDay': event['ows_fAllDayEvent'] == true,
+                                'recurrenceId': event['ows_RecurrenceID'],
+                                'recurrence': event['ows_Recurrence'],
+                                'description': event['ows_Description'],
+                                'location': event['ows_Location'],
+                                'category': event['ows_Category'],
+                                'vbId': event['ows_ID'],
+                                'vsbUnique': event['ows_UniqueId'],
+                                'created': event['ows_Created'],
+                                'modified': event['ows_Modified'],
+                                'fileRef': event['ows_FileRef']
+                            };
+                        }
+                    }
+                    else{
+                        console.log("no events found.");
+                    }
+                    requestComplete();
+                });
+            });
+        start.add(1, 'M');
+    }
+}
+else{
+    cli.showHelp();
+}
