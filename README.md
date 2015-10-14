@@ -2,6 +2,17 @@ vsbcal
 ======
 This cute little tool can extract calender data from "Vancouver School Board" school calenders.
 
+## Install
+Make sure you have `node` and `npm` installed and in your `$PATH`. 
+
+```sh
+$ git clone https://github.com/Falkirks/vsbcal
+$ cd vsbcal
+$ npm install
+```
+
+## Usage
+
 ```sh
 $ bin/generate --school=kitsilano --start=2015-10-14 --months=12
 commissioning request with Id 0
